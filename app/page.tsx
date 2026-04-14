@@ -78,6 +78,8 @@ export default function Home() {
   const [status, setStatus] = useState<string>("");
   const [showSettings, setShowSettings] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeError, setAnalyzeError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load from localStorage on mount
@@ -131,6 +133,61 @@ export default function Home() {
     },
     [],
   );
+
+  const analyzeWaybill = useCallback(async (file: File) => {
+    setAnalyzing(true);
+    setAnalyzeError("");
+    try {
+      // Slightly bigger image for OCR quality
+      const imageDataUrl = await fileToDataUrl(file, 1400);
+      const res = await fetch("/api/analyze-waybill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: imageDataUrl }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAnalyzeError(data.error || "Analyse feilet");
+        return;
+      }
+      const parsed = (data.stops || []) as Array<{
+        recipientName?: string;
+        address?: string;
+        postalCode?: string;
+        city?: string;
+        packages?: number;
+        weightKg?: number;
+        reference?: string;
+        notes?: string;
+      }>;
+      if (parsed.length === 0) {
+        setAnalyzeError(
+          "Fant ingen mottakere i bildet. Prøv bedre lys/vinkel eller legg inn manuelt.",
+        );
+        return;
+      }
+      const newStops: Stop[] = parsed.map((p) => ({
+        id: newId(),
+        mottaker: p.recipientName || "",
+        adresse: [p.address, p.postalCode, p.city].filter(Boolean).join(", "),
+        losseadresse: "",
+        kolli: Number(p.packages) || 1,
+        kg: Number(p.weightKg) || 0,
+        eta: "",
+        telefon: "",
+        merknad: [p.reference, p.notes].filter(Boolean).join(" · "),
+        fotoDataUrl: imageDataUrl,
+        geocodeStatus: "pending",
+      }));
+      setStops((arr) => [...arr, ...newStops]);
+      setStatus(`La til ${newStops.length} stopp fra fraktbrev — sjekk og juster ved behov`);
+      setTimeout(() => setStatus(""), 5000);
+    } catch (err: any) {
+      setAnalyzeError(String(err?.message || err));
+    } finally {
+      setAnalyzing(false);
+    }
+  }, []);
 
   const resetForm = () => {
     setForm(EMPTY_FORM);
@@ -362,6 +419,41 @@ export default function Home() {
             </button>
           )}
         </div>
+      </section>
+
+      <section className="mb-4 rounded-xl border border-brand-200 bg-brand-50 p-4 shadow-sm">
+        <h2 className="mb-1 text-sm font-semibold text-brand-900">
+          📷 Automatisk fraktbrev-lesing
+        </h2>
+        <p className="mb-3 text-xs text-brand-800">
+          Ta bilde av fraktbrevet — Claude leser mottaker, adresse, vekt og kolli automatisk og legger inn som nytt stopp.
+        </p>
+        <label
+          className={`flex w-full cursor-pointer items-center justify-center rounded-lg px-4 py-3 text-base font-semibold text-white shadow-sm ${
+            analyzing
+              ? "bg-slate-400"
+              : "bg-brand-600 hover:bg-brand-700"
+          }`}
+        >
+          {analyzing ? "Leser fraktbrev…" : "📷 Ta bilde av fraktbrev"}
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) analyzeWaybill(f);
+              e.target.value = "";
+            }}
+            disabled={analyzing}
+            className="hidden"
+          />
+        </label>
+        {analyzeError && (
+          <div className="mt-2 rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">
+            {analyzeError}
+          </div>
+        )}
       </section>
 
       <div className="mb-4 flex gap-2">
