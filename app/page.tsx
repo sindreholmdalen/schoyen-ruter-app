@@ -289,8 +289,8 @@ export default function Home() {
       } else {
         updated[i] = { ...s, geocodeStatus: "failed" };
       }
-      // Respect Nominatim rate limit (1 req/sec)
-      await new Promise((r) => setTimeout(r, 1100));
+      // Kartverket has generous rate limits; keep a tiny delay as politeness
+      await new Promise((r) => setTimeout(r, 120));
       done++;
     }
 
